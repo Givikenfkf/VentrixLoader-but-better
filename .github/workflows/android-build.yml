@@ -36,20 +36,31 @@ jobs:
         shell: cmd
         working-directory: ${{ github.workspace }}
         run: |
-          echo Listing repo root to help debug paths...
-          dir
-          REM run build
+          echo === Running compile_bootstrap_android.bat ===
           call .\compile_bootstrap_android.bat
+          echo === compile script finished ===
 
-      - name: Show Output folder contents
+      - name: List Output folder contents (if any)
         shell: cmd
         run: |
-          echo Listing top-level Output folder (if any)...
-          dir /s /b Output || echo "No Output folder found"
-          echo Listing MelonLoader.Bootstrap bin folders...
-          dir /s /b MelonLoader.Bootstrap\bin || echo "No bootstrap bin folder found"
+          if exist Output (
+            echo Listing Output\...
+            dir /s /b Output
+          ) else (
+            echo "No Output folder found"
+          )
 
-      - name: Create zip of Output folder (if exists)
+      - name: List bootstrap bin folders (if any)
+        shell: cmd
+        run: |
+          if exist MelonLoader.Bootstrap\bin (
+            echo Listing MelonLoader.Bootstrap\bin\...
+            dir /s /b MelonLoader.Bootstrap\bin
+          ) else (
+            echo "No MelonLoader.Bootstrap\bin folder found"
+          )
+
+      - name: Create zip of Output folder (or placeholder)
         shell: pwsh
         run: |
           if (Test-Path -Path ./Output) {
@@ -58,21 +69,22 @@ jobs:
             Compress-Archive -Path ./Output -DestinationPath $zipPath -Force
             Write-Host "Created $zipPath"
           } else {
-            Write-Host "No Output folder to zip"
+            Write-Host "No Output folder to zip; creating placeholder no_artifacts.txt"
+            "No artifacts produced by build" | Out-File -FilePath no_artifacts.txt -Encoding UTF8
           }
 
-      - name: Upload build artifacts (Output + bootstrap)
+      - name: Upload build artifacts (Output + common patterns)
         uses: actions/upload-artifact@v4
         with:
           name: android-build-artifacts
           path: |
-            Output/**
             artifacts-output.zip
+            no_artifacts.txt
+            Output/**
             MelonLoader.Bootstrap/bin/**
-            MelonLoader.Bootstrap/bin/x86/** 
-            MelonLoader.Bootstrap/bin/Release/**
+            **/bin/**/Release/**
+            **/Output/**/*
             **/*.dll
-            **/libmain.dll
             **/*.so
             **/*.apk
             **/*.aab
