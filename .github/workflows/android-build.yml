@@ -1,41 +1,93 @@
-name: Android CI
+name: Build Android (Bootstrap)
 
+# Run on push to main/branch or manually
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
+      - master
   workflow_dispatch:
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  build-android:
+    name: Build Android Bootstrap (Windows)
+    runs-on: windows-latest
     steps:
-      - name: Checkout
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Set up JDK 11
+      # (Optional) Cache NuGet packages if your repository uses dotnet/nuget heavily
+      - name: Setup NuGet cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ hashFiles('**/*.csproj','**/packages.lock.json') }}
+          restore-keys: |
+            nuget-
+
+      # Install .NET SDK (adjust version if your build needs different)
+      - name: Setup .NET SDK 6.0
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: '6.0.x'
+
+      # Install Rust toolchain (if your bootstrap uses Rust components)
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      # (Optional) Setup Java (if Android SDK/gradle tools required by your scripts)
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '11'
 
-      - name: Cache Gradle
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
+      # If your build script expects Android SDK/NDK installed, uncomment/adapt an installer below.
+      # Many Windows runners already include Android SDK components, but if your script requires a specific NDK,
+      # you can install it via sdkmanager or choco. Example (commented):
+      #
+      # - name: Install Android SDK tools (example; adjust if needed)
+      #   run: |
+      #     choco install -y android-sdk
+      #     # Accept licenses or install specific ndk versions if your script needs them
 
-      - name: Make gradlew executable
-        run: chmod +x ./gradlew
+      # Make sure your build script is executable and run it.
+      # Adjust the path/arguments if your script needs 'debug' or 'release' args.
+      - name: Run Android bootstrap compile script (release)
+        working-directory: ${{ github.workspace }}
+        run: |
+          echo "Listing repo root to help debug paths..."
+          dir
+          REM --- run the repo's Windows batch build script ---
+          call .\compile_bootstrap_android.bat
 
-      - name: Build (release)
-        run: ./gradlew assembleRelease --no-daemon
+      # If you need debug build instead
+      # - name: Run Android bootstrap compile script (debug)
+      #   run: call .\compile_bootstrap_android_debug.bat
 
-      - name: Upload APK artifact
+      # Collect and upload build outputs as artifacts (adjust path to where your build produces files)
+      - name: Collect possible build outputs
+        run: |
+          echo "Looking for typical output locations..."
+          dir /s /b . | findstr /i "apk aab zip so dll exe lib bootstrap" || echo "No obvious artifacts found yet."
+
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-apk
-          path: app/build/outputs/**/*.apk
+          # Try to upload the most likely output folders/files; adjust to the folder(s) your build actually creates
+          name: android-build-artifacts
+          path: |
+            ./MelonLoader.Bootstrap/bin/Release/
+            ./MelonLoader.Bootstrap/bin/Debug/
+            ./build/
+            ./out/
+            ./*.zip
+            ./*.apk
+            ./*.aab
+            ./**/*.so
+            ./**/*.dll
+            ./**/bootstrap*.*
