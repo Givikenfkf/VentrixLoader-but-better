@@ -2,13 +2,13 @@
 setlocal enabledelayedexpansion
 
 REM ================================================================
-REM compile_bootstrap_android.bat
-REM Fixed for CI:
-REM  - dotnet publish uses -f net6 for multi-target projects (NETSDK1129 fix)
-REM  - no interactive PAUSE in CI (GITHUB_ACTIONS guard)
+REM compile_bootstrap_android.bat  (CI-friendly)
+REM - Forces predictable publish output under %CD%\Output\%CONFIG%\%RUNTIME%\
+REM - Adds -f net6 for multi-target projects (resolves NETSDK1129)
+REM - No interactive pause in CI
 REM ================================================================
 
-REM Defaults (override by setting env vars before calling)
+REM Defaults (override via environment variables if desired)
 if "%CONFIG%"=="" set CONFIG=Release
 if "%RUNTIME%"=="" set RUNTIME=linux-bionic-arm64
 if "%SOLUTION%"=="" set SOLUTION=MelonLoader.sln
@@ -18,9 +18,10 @@ echo Compile bootstrap (Android oriented) - %DATE% %TIME%
 echo Solution: %SOLUTION%
 echo Configuration: %CONFIG%
 echo Runtime: %RUNTIME%
+echo Working dir: %CD%
 echo ================================================================
 
-REM Exit on error helper
+REM Helper to stop on errors
 :checkError
 if errorlevel 1 (
   echo.
@@ -30,103 +31,98 @@ if errorlevel 1 (
 )
 goto :eof
 
-REM 1) Restore solution
+REM Ensure output base folder
+set OUTPUT_BASE=%CD%\Output\%CONFIG%\%RUNTIME%
+if not exist "%OUTPUT_BASE%" (
+  mkdir "%OUTPUT_BASE%"
+)
+
 echo.
 echo Restoring solution...
 dotnet restore "%SOLUTION%"
 call :checkError
 
-REM 2) Build solution
 echo.
-echo Building solution (no publish)...
+echo Building solution...
 dotnet build "%SOLUTION%" -c %CONFIG% -v minimal
 call :checkError
 
-REM 3) Publish projects that require publish for Android bootstrap outputs.
-REM Note: specify -f net6 for projects that multi-target (fix NETSDK1129).
-REM Adjust or add projects here if your fork requires different ones.
+REM Publish individual projects to deterministic locations under Output\%CONFIG%\%RUNTIME%\{ProjectName}
+REM Adjust -f or -r for specific projects as needed.
 
-echo.
-echo Publishing MelonLoader.Bootstrap (native bootstrap lib for x86)
-if exist "MelonLoader.Bootstrap\MelonLoader.Bootstrap.csproj" (
-  dotnet publish "MelonLoader.Bootstrap\MelonLoader.Bootstrap.csproj" -c %CONFIG% -r win-x86 -f net48 --self-contained false
-  REM If your MelonLoader.Bootstrap project targets a different TF, adjust -f accordingly.
-  call :checkError
-) else (
-  echo Skipping MelonLoader.Bootstrap publish: project not found.
-)
-
-echo.
-echo Publishing MelonLoader.NativeHost (if exists) for runtime publishing
-if exist "MelonLoader.NativeHost\MelonLoader.NativeHost.csproj" (
-  dotnet publish "MelonLoader.NativeHost\MelonLoader.NativeHost.csproj" -c %CONFIG% -r %RUNTIME% -f net6 --self-contained false
-  call :checkError
-) else (
-  echo Skipping MelonLoader.NativeHost publish: project not found.
-)
-
-echo.
-echo Publishing MelonLoader (main managed assembly) for target runtime
+REM 1) MelonLoader (main managed assembly) -> publish net6 for linux-bionic-arm64
 if exist "MelonLoader\MelonLoader.csproj" (
-  REM MelonLoader.csproj targets multiple frameworks (net35, net6). Publish net6 for linux-bionic-arm64.
-  dotnet publish "MelonLoader\MelonLoader.csproj" -c %CONFIG% -r %RUNTIME% -f net6 --self-contained false
+  echo Publishing MelonLoader -> %OUTPUT_BASE%\MelonLoader
+  dotnet publish "MelonLoader\MelonLoader.csproj" -c %CONFIG% -r %RUNTIME% -f net6 --self-contained false -o "%OUTPUT_BASE%\MelonLoader"
   call :checkError
 ) else (
-  echo Skipping MelonLoader publish: project not found.
+  echo Skipping MelonLoader publish: not found
 )
 
-echo.
-echo Publishing UnityUtilities / dependencies that the build expects (net6)
-for %%P in (
-  "UnityUtilities\UnityEngine.Il2CppImageConversionManager\UnityEngine.Il2CppImageConversionManager.csproj"
-  "UnityUtilities\UnityEngine.Il2CppAssetBundleManager\UnityEngine.Il2CppAssetBundleManager.csproj"
-) do (
-  if exist %%~P (
-    echo Publishing %%~P ...
-    dotnet publish "%%~P" -c %CONFIG% -r %RUNTIME% -f net6 --self-contained false
-    call :checkError
-  ) else (
-    echo Skipping %%~P (not found).
-  )
+REM 2) MelonLoader.NativeHost -> native host (net6)
+if exist "MelonLoader.NativeHost\MelonLoader.NativeHost.csproj" (
+  echo Publishing MelonLoader.NativeHost -> %OUTPUT_BASE%\MelonLoader.NativeHost
+  dotnet publish "MelonLoader.NativeHost\MelonLoader.NativeHost.csproj" -c %CONFIG% -r %RUNTIME% -f net6 --self-contained false -o "%OUTPUT_BASE%\MelonLoader.NativeHost"
+  call :checkError
+) else (
+  echo Skipping MelonLoader.NativeHost publish: not found
 )
 
-echo.
-echo Publishing PortablePdbToMdb (tool)
+REM 3) UnityUtilities projects (if present)
+if exist "UnityUtilities\UnityEngine.Il2CppImageConversionManager\UnityEngine.Il2CppImageConversionManager.csproj" (
+  echo Publishing UnityEngine.Il2CppImageConversionManager -> %OUTPUT_BASE%\Il2CppImageConversionManager
+  dotnet publish "UnityUtilities\UnityEngine.Il2CppImageConversionManager\UnityEngine.Il2CppImageConversionManager.csproj" -c %CONFIG% -r %RUNTIME% -f net6 --self-contained false -o "%OUTPUT_BASE%\Il2CppImageConversionManager"
+  call :checkError
+) else (
+  echo Skipping Il2CppImageConversionManager: not found
+)
+
+if exist "UnityUtilities\UnityEngine.Il2CppAssetBundleManager\UnityEngine.Il2CppAssetBundleManager.csproj" (
+  echo Publishing UnityEngine.Il2CppAssetBundleManager -> %OUTPUT_BASE%\Il2CppAssetBundleManager
+  dotnet publish "UnityUtilities\UnityEngine.Il2CppAssetBundleManager\UnityEngine.Il2CppAssetBundleManager.csproj" -c %CONFIG% -r %RUNTIME% -f net6 --self-contained false -o "%OUTPUT_BASE%\Il2CppAssetBundleManager"
+  call :checkError
+) else (
+  echo Skipping Il2CppAssetBundleManager: not found
+)
+
+REM 4) MelonLoader.Bootstrap native lib (example publish target: produce libmain.dll in a known place)
+if exist "MelonLoader.Bootstrap\MelonLoader.Bootstrap.csproj" (
+  echo Publishing MelonLoader.Bootstrap (NOTE: targeting native/lib outputs)...
+  REM Publish to a bootstrap-specific folder. Use win-x86 target for libmain (adjust if needed).
+  dotnet publish "MelonLoader.Bootstrap\MelonLoader.Bootstrap.csproj" -c %CONFIG% -r win-x86 -f net48 --self-contained false -o "%CD%\Output\%CONFIG%\bootstrap\win-x86"
+  call :checkError
+) else (
+  echo Skipping MelonLoader.Bootstrap publish: not found
+)
+
+REM 5) PortablePdbToMdb tool (if present) - produce a Windows tool output so you can download
 if exist "PortablePdbToMdb\PortablePdbToMdb.csproj" (
-  dotnet publish "PortablePdbToMdb\PortablePdbToMdb.csproj" -c %CONFIG% -r win-x64 -f net6 --self-contained false
+  echo Publishing PortablePdbToMdb -> %CD%\Output\%CONFIG%\tools\PortablePdbToMdb
+  dotnet publish "PortablePdbToMdb\PortablePdbToMdb.csproj" -c %CONFIG% -r win-x64 -f net6 --self-contained false -o "%CD%\Output\%CONFIG%\tools\PortablePdbToMdb"
   call :checkError
 ) else (
-  echo Skipping PortablePdbToMdb (not found).
+  echo Skipping PortablePdbToMdb: not found
 )
 
-REM Add or modify publishes above to match your repo's actual needs.
-REM If you need net35 outputs for specific components, add additional publish lines:
-REM dotnet publish "SomeProject\SomeProject.csproj" -c %CONFIG% -r %RUNTIME% -f net35 --self-contained false
+REM Any other publishes you need: add here with -o path to the Output tree.
 
 echo.
-echo Running any custom packaging steps (existing project scripts)
-REM If you have custom native build steps, call them here.
-REM Example: call a helper script that creates libmain.dll, or runs makedll steps.
-if exist ".\build_native.bat" (
-  echo Running build_native.bat...
-  call .\build_native.bat
-  call :checkError
+echo Listing Output tree for verification:
+if exist "%CD%\Output" (
+  dir /s /b "%CD%\Output"
 ) else (
-  echo No build_native.bat found - skipping.
+  echo "No Output folder produced"
 )
 
-REM Additional warnings around NDK access: CI images may not include all Android NDK files.
-REM If your script uses grep or reads /sysroot/etc/os-release in the NDK, it may fail; handle that in project-specific scripts.
+REM Create a small manifest file with a snapshot (helpful to download from Actions)
+echo Build snapshot created at %DATE% %TIME% > "%CD%\Output\build_snapshot.txt"
+for /f "delims=" %%A in ('dir /s /b "%CD%\Output" 2^>nul') do echo %%~fA >> "%CD%\Output\build_snapshot.txt" 2>nul
 
-echo.
-echo All publish steps completed. Check Output/ or published folders for artifacts.
-echo.
-
-REM -------------- avoid interactive pause in CI ---------------------
+REM Skip interactive pause in CI
 if defined GITHUB_ACTIONS (
-  echo Running in CI environment (GITHUB_ACTIONS defined) - skipping interactive pause.
+  echo Running in CI - skipping pause.
 ) else (
-  echo Waiting for keypress (local run)...
+  echo Local run finished. Press any key to continue...
   pause
 )
 
