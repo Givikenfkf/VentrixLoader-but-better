@@ -1,6 +1,6 @@
 name: Build Android (Bootstrap)
 
-# Run on push to main/branch or manually
+# Run on push to main/master or manually
 on:
   push:
     branches:
@@ -50,30 +50,35 @@ jobs:
       # Many Windows runners already include Android SDK components, but if your script requires a specific NDK,
       # you can install it via sdkmanager or choco. Example (commented):
       #
-      # - name: Install Android SDK tools (example; adjust if needed)
+      # - name: Install Android SDK tools (example; adapt if needed)
+      #   shell: cmd
       #   run: |
       #     choco install -y android-sdk
-      #     # Accept licenses or install specific ndk versions if your script needs them
+      #     REM Example to accept licenses or install a specific NDK; adapt for your needs
+      #     REM sdkmanager "ndk;21.4.7075529" --sdk_root="%ANDROID_SDK_ROOT%"
 
-      # Make sure your build script is executable and run it.
-      # Adjust the path/arguments if your script needs 'debug' or 'release' args.
+      # Run the repo's Windows batch build script using cmd (avoids PowerShell quoting issues)
       - name: Run Android bootstrap compile script (release)
+        shell: cmd
         working-directory: ${{ github.workspace }}
         run: |
-          echo "Listing repo root to help debug paths..."
+          echo Listing repo root to help debug paths...
           dir
           REM --- run the repo's Windows batch build script ---
           call .\compile_bootstrap_android.bat
 
-      # If you need debug build instead
+      # (Optional) If you want a debug build instead, add another step using the debug script.
       # - name: Run Android bootstrap compile script (debug)
-      #   run: call .\compile_bootstrap_android_debug.bat
+      #   shell: cmd
+      #   run: |
+      #     call .\compile_bootstrap_android_debug.bat
 
-      # Collect and upload build outputs as artifacts (adjust path to where your build produces files)
+      # Collect and show likely outputs (uses cmd)
       - name: Collect possible build outputs
+        shell: cmd
         run: |
-          echo "Looking for typical output locations..."
-          dir /s /b . | findstr /i "apk aab zip so dll exe lib bootstrap" || echo "No obvious artifacts found yet."
+          echo Looking for typical output locations...
+          dir /s /b . | findstr /i "apk aab zip so dll exe lib bootstrap" || echo No obvious artifacts found yet.
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
